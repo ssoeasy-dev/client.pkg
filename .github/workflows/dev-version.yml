@@ -23,11 +23,22 @@ jobs:
         id: detect
         run: |
           CHANGED="[]"
-          BASE="origin/${{ github.base_ref }}"
-          if git diff --name-only $BASE...HEAD | grep -q "^core/"; then
+          if [ "${{ github.event.action }}" = "synchronize" ]; then
+            # Для synchronize: сравниваем последний пуш с предыдущим состоянием ветки
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+            DIFF_RANGE="$BASE $HEAD"
+          else
+            # Для opened/reopened: сравниваем с базовой веткой
+            BASE="origin/${{ github.base_ref }}"
+            HEAD="HEAD"
+            DIFF_RANGE="$BASE...$HEAD"
+          fi
+
+          if git diff --name-only $DIFF_RANGE | grep -q "^core/"; then
             CHANGED=$(echo $CHANGED | jq '. + ["core"]')
           fi
-          if git diff --name-only $BASE...HEAD | grep -q "^react/"; then
+          if git diff --name-only $DIFF_RANGE | grep -q "^react/"; then
             CHANGED=$(echo $CHANGED | jq '. + ["react"]')
           fi
           echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
@@ -67,7 +78,7 @@ jobs:
         run: |
           BRANCH_NAME="${{ github.head_ref }}"
           BRANCH_SLUG=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')
-          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
+          CONFIG_FILE="../../env-configs/${BRANCH_SLUG}.env"
           if [ -f "$CONFIG_FILE" ]; then
             cp "$CONFIG_FILE" .env
             echo "✅ Environment config loaded from $CONFIG_FILE"
@@ -122,7 +133,7 @@ jobs:
             echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm publish."
             exit 0
           fi
-          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.npm_dist_tag }}
+          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.npm_dist_tag }} --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
