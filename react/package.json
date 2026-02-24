@@ -1,0 +1,35 @@
+{
+  "name": "@ssoeasy-dev/react",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.ts",
+  "types": "index.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@ssoeasy-dev/core": "1.0.0-dev-feat-auth.a8ea92c",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "typescript": "^5.0.0"
+  },
+  "author": "MoreWiktor <MoreWiktor@yandex.ru>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

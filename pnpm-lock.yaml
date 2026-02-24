@@ -6,6 +6,8 @@ settings:
 
 importers:
 
+  .: {}
+
   core:
     dependencies:
       axios:
@@ -25,8 +27,8 @@ importers:
   react:
     dependencies:
       '@ssoeasy-dev/core':
-        specifier: ../core
-        version: link:../core
+        specifier: 1.0.0-dev-feat-auth.a8ea92c
+        version: 1.0.0-dev-feat-auth.a8ea92c
       react:
         specifier: ^19.2.4
         version: 19.2.4
@@ -39,6 +41,9 @@ importers:
         version: 5.9.3
 
 packages:
+
+  '@ssoeasy-dev/core@1.0.0-dev-feat-auth.a8ea92c':
+    resolution: {integrity: sha512-WLV5xlqyoDLXT4TjEVNmV13bAOqQ7fE9u+va5UMa3Cr3S8JtjYCZ9Mh3rcgFnmBlADvBFxeo7tw6pjKmX9GvCQ==}
 
   '@types/node@25.3.0':
     resolution: {integrity: sha512-4K3bqJpXpqfg2XKGK9bpDTc6xO/xoUP/RBWS7AtRMug6zZFaRekiLzjVtAoZMquxoAbzBvy5nxQ7veS5eYzf8A==}
@@ -159,6 +164,12 @@ packages:
     resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
 
 snapshots:
+
+  '@ssoeasy-dev/core@1.0.0-dev-feat-auth.a8ea92c':
+    dependencies:
+      axios: 1.13.5
+    transitivePeerDependencies:
+      - debug
 
   '@types/node@25.3.0':
     dependencies:
