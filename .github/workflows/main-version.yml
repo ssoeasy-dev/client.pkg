@@ -72,7 +72,7 @@ jobs:
         working-directory: ${{ matrix.package }}
         run: |
           BRANCH_SLUG="main"
-          CONFIG_FILE="../../env-configs/${BRANCH_SLUG}.env"
+          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
           if [ -f "$CONFIG_FILE" ]; then
             cp "$CONFIG_FILE" .env
             echo "✅ Environment config loaded from $CONFIG_FILE"
