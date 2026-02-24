@@ -29,5 +29,8 @@
     "typescript": "^5.0.0"
   },
   "author": "MoreWiktor <MoreWiktor@yandex.ru>",
-  "license": "MIT"
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
 }
