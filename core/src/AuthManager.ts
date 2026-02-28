@@ -190,7 +190,6 @@ export class AuthManager {
           ...(traceId && { headers: { "x-trace-id": traceId } }),
         },
       );
-
       sessionStorage.removeItem("x-trace-id");
 
       const authHeader =

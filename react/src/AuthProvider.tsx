@@ -11,7 +11,7 @@ export const AuthProvider: React.FC<{
     () => new AuthManager(config),
     [config.serviceId, config.redirectUri],
   );
-  const [state, setState] = useState<AuthState>(auth.getState());
+  const [_, setState] = useState<AuthState>(auth.getState());
 
   useEffect(() => {
     const unsubscribe = auth.onStateChange(setState);
