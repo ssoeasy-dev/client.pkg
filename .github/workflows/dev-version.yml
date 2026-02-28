@@ -8,7 +8,7 @@ on:
 jobs:
   detect-changes:
     name: Detect changed packages
-    if: github.event.action != 'closed'
+    if: github.event.action != 'closed' && github.base_ref == 'develop'
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.detect.outputs.matrix }}
