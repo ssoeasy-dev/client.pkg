@@ -26,7 +26,7 @@ jobs:
           if [ "${{ github.event.action }}" = "synchronize" ]; then
             # Для synchronize: сравниваем последний пуш с предыдущим состоянием ветки
             BASE="${{ github.event.before }}"
-            HEAD="${{ github.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
             DIFF_RANGE="$BASE $HEAD"
           else
             # Для opened/reopened: сравниваем с базовой веткой
