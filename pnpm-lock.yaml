@@ -27,8 +27,8 @@ importers:
   examples/react:
     dependencies:
       '@ssoeasy-dev/react':
-        specifier: 1.0.0-dev-feat-auth.33cd3cb
-        version: 1.0.0-dev-feat-auth.33cd3cb
+        specifier: 1.0.0-beta.64cfe3a
+        version: 1.0.0-beta.64cfe3a
       react:
         specifier: ^19.2.0
         version: 19.2.4
@@ -352,11 +352,8 @@ packages:
   '@ssoeasy-dev/core@1.0.0-beta.2bdd988':
     resolution: {integrity: sha512-knbf9HFANkPbkLLcQOpzpyiu+iiis4XWBAfBTyBGD3pV1B5aW6t9Zw0jgweBKww6jIqf9b8M9fROgwF9+Mug5g==}
 
-  '@ssoeasy-dev/core@1.0.0-dev-feat-auth.8c1cdac':
-    resolution: {integrity: sha512-DfXIOgoJTL+owBQ13Gno68nRKCt0cBMxYoDatfbGnyPzzDHuNrrAuAf75KpTwsXLZeU5lyMLz71yNhn6jQ2vWA==}
-
-  '@ssoeasy-dev/react@1.0.0-dev-feat-auth.33cd3cb':
-    resolution: {integrity: sha512-O+mqONk5bzpGC6kK96bzrECcXTGBmCj9HS7AHHBqaCQ8gLyXgcVOozZYaV8tc6SL81oynBaUW8F4G2LDVOgDSg==}
+  '@ssoeasy-dev/react@1.0.0-beta.64cfe3a':
+    resolution: {integrity: sha512-sOZdkCxuRoJ5zkWX6VdFQ/mC9vSSuouuZ/2FSThpKmB1OdiVL02uE6gTuMREvS/bvOb8gDXzCYDGK3l343F63g==}
 
   '@tybys/wasm-util@0.10.1':
     resolution: {integrity: sha512-9tTaPJLSiejZKx+Bmog4uSubteqTvFrVrURwkmHixBo0G4seD0zUxp98E1DzUBJxLQ3NPwXrGKDiVjwx/DpPsg==}
@@ -1440,15 +1437,9 @@ snapshots:
     transitivePeerDependencies:
       - debug
 
-  '@ssoeasy-dev/core@1.0.0-dev-feat-auth.8c1cdac':
+  '@ssoeasy-dev/react@1.0.0-beta.64cfe3a':
     dependencies:
-      axios: 1.13.5
-    transitivePeerDependencies:
-      - debug
-
-  '@ssoeasy-dev/react@1.0.0-dev-feat-auth.33cd3cb':
-    dependencies:
-      '@ssoeasy-dev/core': 1.0.0-dev-feat-auth.8c1cdac
+      '@ssoeasy-dev/core': 1.0.0-beta.2bdd988
       react: 19.2.4
     transitivePeerDependencies:
       - debug
