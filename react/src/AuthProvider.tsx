@@ -7,7 +7,6 @@ export const AuthProvider: React.FC<{
   config: AuthConfig;
   children: React.ReactNode;
 }> = ({ config, children }) => {
-  // const auth = new AuthManager(config);
   const auth = useMemo(() => new AuthManager(config), [config.serviceId, config.redirectUri]);
   const [state, setState] = useState<AuthState>(auth.getState());
 
