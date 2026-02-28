@@ -13,6 +13,7 @@ export interface AuthServerEndpoints {
   logout?: string;
 }
 
+
 interface AuthServerConfig {
   baseURL?: string;
   endpoints?: AuthServerEndpoints;
