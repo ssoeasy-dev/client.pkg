@@ -9,8 +9,18 @@ import {
   generateState,
 } from "./utils";
 import { saveTempData, getTempData, removeTempData } from "./storage";
-import type { AuthState, StateChangeListener, AuthConfig, AuthServerEndpoints } from "./types";
-import { AUTH_PAGE, AUTHORIZE_PATH, BASE_URL, LOGOUT_PATH } from "./constants.generated";
+import type {
+  AuthState,
+  StateChangeListener,
+  AuthConfig,
+  AuthServerEndpoints,
+} from "./types";
+import {
+  AUTH_PAGE,
+  AUTHORIZE_PATH,
+  BASE_URL,
+  LOGOUT_PATH,
+} from "./constants.generated";
 
 export class AuthManager {
   private serviceId: string;
@@ -42,7 +52,8 @@ export class AuthManager {
     this.authPageUrl = config.authPageUrl || AUTH_PAGE;
     this.baseURL = config.authServerConfig?.baseURL || BASE_URL;
     this.endpoints = {
-      authorize: config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
+      authorize:
+        config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
       logout: config.authServerConfig?.endpoints?.logout || LOGOUT_PATH,
     };
 
@@ -51,7 +62,9 @@ export class AuthManager {
     }
 
     if (!this.redirectUri.startsWith("http")) {
-      throw new Error("AuthManager constructor: redirectUri must be URI, example: https://domain.com/")
+      throw new Error(
+        "AuthManager constructor: redirectUri must be URI, example: https://domain.com/",
+      );
     }
 
     this.authClient = axios.create({ baseURL: this.baseURL });
@@ -60,14 +73,10 @@ export class AuthManager {
     this.setupInterceptors(this.client);
   }
 
-
-
-
-
   private setState(newState: Partial<AuthState>) {
     this.state = {
       ...this.state,
-      ...newState
+      ...newState,
     };
     this.listeners.forEach((fn) => fn(this.state));
   }
@@ -95,10 +104,6 @@ export class AuthManager {
   private isBrowser(): boolean {
     return typeof window !== "undefined";
   }
-
-
-
-
 
   public async checkAuth(): Promise<boolean> {
     if (!this.isBrowser()) {
@@ -139,7 +144,10 @@ export class AuthManager {
 
     const loginUrlObj = new URL(this.authPageUrl);
     loginUrlObj.searchParams.set("challenge", challenge);
-    loginUrlObj.searchParams.set("redirect_uri", this.redirectUri + this.loginPath);
+    loginUrlObj.searchParams.set(
+      "redirect_uri",
+      this.redirectUri + this.loginPath,
+    );
     loginUrlObj.searchParams.set("service_id", this.serviceId);
     loginUrlObj.searchParams.set("state", state);
 
@@ -156,6 +164,7 @@ export class AuthManager {
     const url = new URL(window.location.href);
     const code = url.searchParams.get("code");
     const state = url.searchParams.get("state");
+    const traceId = url.searchParams.get("traceId");
 
     if (!code || !state) {
       throw new Error("Missing code or state in URL");
@@ -170,13 +179,19 @@ export class AuthManager {
 
     try {
       const response = await this.authClient.post(
-        this.baseURL + this.endpoints.authorize.replace(":serviceId", this.serviceId),
+        this.baseURL +
+          this.endpoints.authorize.replace(":serviceId", this.serviceId),
         {
           verifier: tempData.verifier,
           code,
         },
-        { withCredentials: true },
+        {
+          withCredentials: true,
+          ...(traceId && { headers: { "x-trace-id": traceId } }),
+        },
       );
+
+      sessionStorage.removeItem('x-trace-id')
 
       const authHeader =
         response.headers["authorization"] || response.headers["Authorization"];
@@ -220,7 +235,8 @@ export class AuthManager {
     this.refreshPromise = (async () => {
       try {
         const response = await this.authClient.post(
-          this.baseURL + this.endpoints.authorize.replace(":serviceId", this.serviceId),
+          this.baseURL +
+            this.endpoints.authorize.replace(":serviceId", this.serviceId),
           {},
           { withCredentials: true },
         );
@@ -229,7 +245,7 @@ export class AuthManager {
           response.headers["authorization"] ||
           response.headers["Authorization"];
 
-          if (!authHeader || typeof authHeader !== "string") {
+        if (!authHeader || typeof authHeader !== "string") {
           return null;
         }
         const match = authHeader.match(/^Bearer\s+(.+)$/i);
@@ -248,16 +264,12 @@ export class AuthManager {
     return this.refreshPromise;
   }
 
-
-
-
   public getClient(): AxiosInstance {
     return this.client;
   }
 
   private setupInterceptors(instanse: AxiosInstance) {
     instanse.interceptors.request.use((config) => {
-      console.log("set token to header: ", this.accessToken)
       if (this.accessToken) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
       }
@@ -321,10 +333,9 @@ export class AuthManager {
 
   private isRefreshRequest(config: InternalAxiosRequestConfig): boolean {
     const url = config.url?.split("?")[0];
-    const target = this.baseURL + this.endpoints.authorize.replace(
-      ":serviceId",
-      this.serviceId,
-    );
+    const target =
+      this.baseURL +
+      this.endpoints.authorize.replace(":serviceId", this.serviceId);
     return url === target && config.method?.toLowerCase() === "post";
   }
 }
