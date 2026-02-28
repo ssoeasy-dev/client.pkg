@@ -191,7 +191,7 @@ export class AuthManager {
         },
       );
 
-      sessionStorage.removeItem('x-trace-id')
+      sessionStorage.removeItem("x-trace-id");
 
       const authHeader =
         response.headers["authorization"] || response.headers["Authorization"];
