@@ -1,0 +1,36 @@
+{
+  "name": "@ssoeasy-dev/core",
+  "version": "1.0.0",
+  "description": "Core SSO authentication library for browser",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prebuild": "node ./scripts/generate-env-constants.js",
+    "build": "npm run prebuild && tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "axios": "^1.13.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0",
+    "dotenv": "^17.3.1",
+    "typescript": "^5.0.0"
+  },
+  "author": "MoreWiktor <MoreWiktor@yandex.ru>",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  }
+}

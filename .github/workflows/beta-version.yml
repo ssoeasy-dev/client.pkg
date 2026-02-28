@@ -1,0 +1,137 @@
+name: Beta Version Management
+
+on:
+  push:
+    branches: [develop]
+
+jobs:
+  detect-changes:
+    name: Detect changed packages
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - name: Checkout Develop Branch
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Detect changed packages
+        id: detect
+        run: |
+          CHANGED="[]"
+          if [ -n "${{ github.event.before }}" ]; then
+            BASE="${{ github.event.before }}"
+          else
+            echo "No previous commit found, publishing all packages"
+            CHANGED='["core","react"]'
+            echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^core/"; then
+            CHANGED=$(echo $CHANGED | jq '. + ["core"]')
+          fi
+          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^react/"; then
+            CHANGED=$(echo $CHANGED | jq '. + ["react"]')
+          fi
+
+          echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
+
+  publish:
+    name: Publish beta version for ${{ matrix.package }}
+    needs: detect-changes
+    if: needs.detect-changes.outputs.matrix != '{"package":[]}'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+    steps:
+      - name: Checkout Develop Branch
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Prepare environment configuration
+        working-directory: ${{ matrix.package }}
+        run: |
+          BRANCH_SLUG="develop"
+          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
+          if [ -f "$CONFIG_FILE" ]; then
+            cp "$CONFIG_FILE" .env
+            echo "✅ Environment config loaded from $CONFIG_FILE"
+          else
+            echo "❌ Environment config file not found: $CONFIG_FILE"
+            exit 1
+          fi
+
+      - name: Prepare Beta Version
+        id: version
+        working-directory: ${{ matrix.package }}
+        run: |
+          BASE_VERSION=$(node -e "console.log(require('./package.json').version)")
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          VERSION="${BASE_VERSION}-beta.${SHORT_SHA}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "dist_tag=beta" >> $GITHUB_OUTPUT
+          echo "📦 Package: ${{ matrix.package }}"
+          echo "📦 Version: $VERSION"
+          echo "🏷️  NPM dist-tag: beta"
+
+      - name: Check if version already exists
+        id: check
+        run: |
+          FULL_PKG="@ssoeasy-dev/${{ matrix.package }}"
+          VERSION="${{ steps.version.outputs.version }}"
+          if npm view "$FULL_PKG@$VERSION" version >/dev/null 2>&1; then
+            echo "skip=true" >> $GITHUB_OUTPUT
+          else
+            echo "skip=false" >> $GITHUB_OUTPUT
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Update package.json version
+        if: steps.check.outputs.skip == 'false'
+        working-directory: ${{ matrix.package }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.version = '$VERSION';
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+          "
+
+      - name: Build package
+        if: steps.check.outputs.skip == 'false'
+        working-directory: ${{ matrix.package }}
+        run: pnpm run build
+
+      - name: Publish npm beta version
+        if: steps.check.outputs.skip == 'false'
+        working-directory: ${{ matrix.package }}
+        run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm publish."
+            exit 0
+          fi
+          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.dist_tag }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
