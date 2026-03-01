@@ -126,12 +126,39 @@ const auth = useAuth(); // возвращает AuthManager
 <ProtectedRoute
   redirectTo="/target-path" // путь для redirectTo при логине (опционально)
   fallback={<Spinner />} // отображается во время checkAuth (по умолчанию <div>Loading...</div>)
+  unauthenticatedElement={<Node />} // рендерится вместо редиректа на SSO, если пользователь не авторизован (опционально)
 >
   <ProtectedContent />
 </ProtectedRoute>
 ```
 
-При монтировании вызывает `auth.checkAuth()`. Если не авторизован — вызывает `auth.login({ redirectTo })`. Пока идёт проверка — рендерит `fallback`.
+При монтировании вызывает `auth.checkAuth()`. Пока идёт проверка — рендерит `fallback`.
+
+Если пользователь не авторизован:
+
+- **`unauthenticatedElement` не передан** — вызывает `auth.login({ redirectTo })`, редирект на SSO (поведение по умолчанию)
+- **`unauthenticatedElement` передан** — рендерит переданный элемент без редиректа
+
+#### Пример: внутренняя страница выбора входа/регистрации
+
+Если в приложении есть собственная страница `/auth` с кнопками «Войти» и «Зарегистрироваться», можно передать `<Navigate>` вместо того, чтобы сразу уходить на SSO:
+
+```tsx
+import { Navigate } from "react-router-dom";
+import { ProtectedRoute } from "@ssoeasy-dev/react";
+
+const LayoutWrapper = () => {
+  return (
+    <ProtectedRoute unauthenticatedElement={<Navigate to="/auth" replace />}>
+      <Layout>
+        <Outlet />
+      </Layout>
+    </ProtectedRoute>
+  );
+};
+```
+
+Страница `/auth` при этом остаётся публичной — она не обёрнута в `ProtectedRoute`.
 
 ## Экспорты
 
