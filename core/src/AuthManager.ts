@@ -14,12 +14,14 @@ import type {
   StateChangeListener,
   AuthConfig,
   AuthServerEndpoints,
+  MeResponse,
 } from "./types";
 import {
   AUTH_PAGE,
   AUTHORIZE_PATH,
   BASE_URL,
   LOGOUT_PATH,
+  ME_PATH,
 } from "./constants.generated";
 
 export class AuthManager {
@@ -52,9 +54,9 @@ export class AuthManager {
     this.authPageUrl = config.authPageUrl || AUTH_PAGE;
     this.baseURL = config.authServerConfig?.baseURL || BASE_URL;
     this.endpoints = {
-      authorize:
-        config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
+      authorize: config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
       logout: config.authServerConfig?.endpoints?.logout || LOGOUT_PATH,
+      me: config.authServerConfig?.endpoints?.me || ME_PATH,
     };
 
     if (typeof window === "undefined") {
@@ -224,6 +226,14 @@ export class AuthManager {
     } finally {
       this.setAccessToken(null);
     }
+  }
+
+  public async me(): Promise<MeResponse> {
+    const response = await this.authClient.get<MeResponse>(
+      this.baseURL + this.endpoints.me,
+      { withCredentials: true },
+    );
+    return response.data;
   }
 
   private async performRefresh(): Promise<string | null> {

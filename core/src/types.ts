@@ -1,4 +1,4 @@
-import type { AxiosInstance, CreateAxiosDefaults } from "axios";
+import type { CreateAxiosDefaults } from "axios";
 
 export interface AuthState {
   isLoading: boolean;
@@ -11,8 +11,8 @@ export type StateChangeListener = (state: AuthState) => void;
 export interface AuthServerEndpoints {
   authorize?: string;
   logout?: string;
+  me?: string;
 }
-
 
 interface AuthServerConfig {
   baseURL?: string;
@@ -29,4 +29,14 @@ export interface AuthConfig {
   authPageUrl?: string;
   clientConfig?: CreateAxiosDefaults;
   authServerConfig?: AuthServerConfig;
+}
+
+export interface MeResponse {
+  id: string;
+  firstname: string;
+  lastname: string;
+  companies: {
+    id: string;
+    name: string;
+  }[];
 }
