@@ -5,26 +5,24 @@ export interface TempAuthData {
   redirectTo: string;
 }
 
-function getSessionStorage(): Storage | null {
-  if (typeof sessionStorage !== "undefined") {
-    return sessionStorage;
+function getStorage(): Storage | null {
+  if (typeof localStorage !== "undefined") {
+    return localStorage;
   }
   return null;
 }
 
 export function saveTempData(state: string, data: TempAuthData): void {
-  const storage = getSessionStorage();
+  const storage = getStorage();
   if (!storage) {
-    console.warn(
-      "sessionStorage not available, authentication flow may not work",
-    );
+    console.warn("localStorage not available");
     return;
   }
   storage.setItem(STORAGE_PREFIX + state, JSON.stringify(data));
 }
 
 export function getTempData(state: string): TempAuthData | null {
-  const storage = getSessionStorage();
+  const storage = getStorage();
   if (!storage) return null;
   const raw = storage.getItem(STORAGE_PREFIX + state);
   if (!raw) return null;
@@ -36,7 +34,7 @@ export function getTempData(state: string): TempAuthData | null {
 }
 
 export function removeTempData(state: string): void {
-  const storage = getSessionStorage();
+  const storage = getStorage();
   if (!storage) return;
   storage.removeItem(STORAGE_PREFIX + state);
 }
