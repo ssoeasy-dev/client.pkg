@@ -335,6 +335,7 @@ export class AuthManager {
 
   private isRefreshRequest(config: InternalAxiosRequestConfig): boolean {
     const url = config.url?.split("?")[0];
+
     const target =
       this.baseURL +
       this.endpoints.authorize.replace(":serviceId", this.serviceId);
