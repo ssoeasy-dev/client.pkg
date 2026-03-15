@@ -27,8 +27,8 @@ importers:
   react:
     dependencies:
       '@ssoeasy-dev/core':
-        specifier: 1.0.0-beta.af56755
-        version: 1.0.0-beta.af56755
+        specifier: 1.0.0-beta.806f697
+        version: 1.0.0-beta.806f697
       react:
         specifier: ^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0
         version: 19.2.4
@@ -42,8 +42,8 @@ importers:
 
 packages:
 
-  '@ssoeasy-dev/core@1.0.0-beta.af56755':
-    resolution: {integrity: sha512-dSF4ZWdGHP0JikKolb1vuK+NB01Blr2kW3nAuBLTVC+StGhdaNizhd5ZJy7VNG0g58g+UkVkvER8kk/WcOh/FA==}
+  '@ssoeasy-dev/core@1.0.0-beta.806f697':
+    resolution: {integrity: sha512-dwinBcOC/tPpLCJtPXUdsibHy1cmGGYIUutqCZBwWqpelpSz97ETygs4qAP7QcAXfRP9qEL64eWQrqYPljtfHQ==}
 
   '@types/node@25.3.0':
     resolution: {integrity: sha512-4K3bqJpXpqfg2XKGK9bpDTc6xO/xoUP/RBWS7AtRMug6zZFaRekiLzjVtAoZMquxoAbzBvy5nxQ7veS5eYzf8A==}
@@ -165,7 +165,7 @@ packages:
 
 snapshots:
 
-  '@ssoeasy-dev/core@1.0.0-beta.af56755':
+  '@ssoeasy-dev/core@1.0.0-beta.806f697':
     dependencies:
       axios: 1.13.5
     transitivePeerDependencies:
