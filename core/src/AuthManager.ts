@@ -226,11 +226,11 @@ export class AuthManager {
   }
 
   public async me(): Promise<MeResponse> {
-    const response = await this.authClient.get<MeResponse>(
+    const response = await this.authClient.get<{ data: MeResponse }>(
       this.baseURL + this.endpoints.me,
       { withCredentials: true },
     );
-    return response.data;
+    return response.data.data;
   }
 
   private async performRefresh(): Promise<string | null> {
