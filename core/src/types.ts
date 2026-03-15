@@ -35,6 +35,7 @@ export interface MeResponse {
   id: string;
   firstname: string;
   lastname: string;
+  login: string;
   companies: {
     id: string;
     name: string;

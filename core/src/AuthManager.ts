@@ -39,7 +39,6 @@ export class AuthManager {
     error: null,
   };
   private authClient: AxiosInstance;
-  private client: AxiosInstance;
   private refreshPromise: Promise<string | null> | null = null;
   private pendingRequests: Array<{
     resolve: (value: any) => void;
@@ -71,8 +70,6 @@ export class AuthManager {
 
     this.authClient = axios.create({ baseURL: this.baseURL });
     this.setupInterceptors(this.authClient);
-    this.client = axios.create(config.clientConfig);
-    this.setupInterceptors(this.client);
   }
 
   private setState(newState: Partial<AuthState>) {
@@ -273,11 +270,7 @@ export class AuthManager {
     return this.refreshPromise;
   }
 
-  public getClient(): AxiosInstance {
-    return this.client;
-  }
-
-  private setupInterceptors(instanse: AxiosInstance) {
+  public setupInterceptors(instanse: AxiosInstance) {
     instanse.interceptors.request.use((config) => {
       if (this.accessToken) {
         config.headers.Authorization = `Bearer ${this.accessToken}`;
