@@ -39,5 +39,8 @@ export interface MeResponse {
   companies: {
     id: string;
     name: string;
+    serviceName?: string;
+    subscriptionId?: string;
+    subscriptionIsActive?: boolean;
   }[];
 }
