@@ -234,6 +234,22 @@ export class AuthManager {
     return response.data.data;
   }
 
+  public async switchCompany(companyId: string): Promise<void> {
+    const response = await this.authClient.post(
+      this.baseURL +
+        this.endpoints.authorize.replace(":serviceId", this.serviceId),
+      { companyId },
+      { withCredentials: true },
+    );
+
+    const authHeader =
+      response.headers["authorization"] || response.headers["Authorization"];
+    const match = authHeader?.match(/^Bearer\s+(.+)$/i);
+    if (!match) throw new Error("Failed to switch company");
+
+    this.setAccessToken(match[1]);
+  }
+
   private async performRefresh(): Promise<string | null> {
     if (this.refreshPromise) {
       return this.refreshPromise;
