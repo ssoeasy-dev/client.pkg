@@ -20,7 +20,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@ssoeasy-dev/core": "1.0.0-beta.f13d1c7"
+    "@ssoeasy-dev/core": "1.0.0-beta.4eed7a5"
   },
   "peerDependencies": {
     "react": "^16.8.0 || ^17.0.0 || ^18.0.0 || ^19.0.0"
