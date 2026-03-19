@@ -53,7 +53,8 @@ export class AuthManager {
     this.authPageUrl = config.authPageUrl || AUTH_PAGE;
     this.baseURL = config.authServerConfig?.baseURL || BASE_URL;
     this.endpoints = {
-      authorize: config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
+      authorize:
+        config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
       logout: config.authServerConfig?.endpoints?.logout || LOGOUT_PATH,
       me: config.authServerConfig?.endpoints?.me || ME_PATH,
     };
@@ -228,7 +229,7 @@ export class AuthManager {
   public async me(): Promise<MeResponse> {
     const response = await this.authClient.get<{ data: MeResponse }>(
       this.baseURL + this.endpoints.me,
-      { withCredentials: true },
+      { params: { serviceId: this.serviceId }, withCredentials: true },
     );
     return response.data.data;
   }
