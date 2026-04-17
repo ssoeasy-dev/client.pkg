@@ -18,23 +18,11 @@ type Client struct {
 }
 
 // ClientOption позволяет настроить Client.
-type ClientOption func(*Client)
-
-// WithHTTPClient заменяет стандартный http.Client.
-func WithHTTPClient(c *http.Client) ClientOption {
-	return func(cl *Client) { cl.httpClient = c }
-}
-
-// WithTimeout устанавливает таймаут запроса к auth.api.
-func WithTimeout(d time.Duration) ClientOption {
-	return func(cl *Client) {
-		cl.httpClient = &http.Client{Timeout: d}
-	}
-}
+type clientOption func(*Client)
 
 // NewClient создаёт Client.
 //   - baseURL — корень auth.api, например "https://auth.ssoeasy.ru"
-func NewClient(baseURL string, opts ...ClientOption) *Client {
+func NewClient(baseURL string, opts ...clientOption) *Client {
 	c := &Client{
 		baseURL:    strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{Timeout: 5 * time.Second},
@@ -65,13 +53,13 @@ func (c *Client) CheckPermission(
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+q.Encode(), nil)
 	if err != nil {
-		return false, fmt.Errorf("authmw: build request: %w", err)
+		return false, fmt.Errorf("goecho: build request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("authmw: request to auth.api: %w", err)
+		return false, fmt.Errorf("goecho: request to auth.api: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -85,9 +73,9 @@ func (c *Client) CheckPermission(
 		return false, ErrUnauthorized
 	default:
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return false, fmt.Errorf("authmw: unexpected status %d: %s", resp.StatusCode, body)
+		return false, fmt.Errorf("goecho: unexpected status %d: %s", resp.StatusCode, body)
 	}
 }
 
 // ErrUnauthorized возвращается когда auth.api ответил 401.
-var ErrUnauthorized = fmt.Errorf("authmw: unauthorized")
+var ErrUnauthorized = fmt.Errorf("goecho: unauthorized")

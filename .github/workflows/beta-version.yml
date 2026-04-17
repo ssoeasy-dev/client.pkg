@@ -4,53 +4,31 @@ on:
   push:
     branches: [develop]
 
+concurrency:
+  group: beta-version-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
-  detect-changes:
-    name: Detect changed packages
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
-    steps:
-      - name: Checkout Develop Branch
-        uses: actions/checkout@v4
-        with:
-          ref: develop
-          fetch-depth: 0
+  detect:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/detect-changed-packages.yml
+    with:
+      base-ref: ${{ github.event.before }}
+      head-ref: ${{ github.sha }}
+      fallback-branch: develop
 
-      - name: Detect changed packages
-        id: detect
-        run: |
-          CHANGED="[]"
-          if [ -n "${{ github.event.before }}" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            echo "No previous commit found, publishing all packages"
-            CHANGED='["core","react"]'
-            echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^core/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["core"]')
-          fi
-          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^react/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["react"]')
-          fi
-
-          echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
-
-  publish:
-    name: Publish beta version for ${{ matrix.package }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '{"package":[]}'
+  release-beta:
+    name: Release Beta Versions
+    needs: detect
+    if: |
+      needs.detect.outputs.packages != '[]' &&
+      !contains(github.event.head_commit.message, 'chore(deps): update')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
-    strategy:
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
-      - name: Checkout Develop Branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           ref: develop
@@ -62,76 +40,123 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install pnpm
-        run: npm install -g pnpm
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare environment configuration
-        working-directory: ${{ matrix.package }}
+      - name: Install pnpm and jq
         run: |
-          BRANCH_SLUG="develop"
-          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
-          if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" .env
-            echo "✅ Environment config loaded from $CONFIG_FILE"
-          else
-            echo "❌ Environment config file not found: $CONFIG_FILE"
-            exit 1
-          fi
+          npm install -g pnpm
+          sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Prepare Beta Version
-        id: version
-        working-directory: ${{ matrix.package }}
+      - name: Build release plan
+        id: plan
         run: |
-          BASE_VERSION=$(node -e "console.log(require('./package.json').version)")
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          VERSION="${BASE_VERSION}-beta.${SHORT_SHA}"
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "dist_tag=beta" >> $GITHUB_OUTPUT
-          echo "📦 Package: ${{ matrix.package }}"
-          echo "📦 Version: $VERSION"
-          echo "🏷️  NPM dist-tag: beta"
+          CHANGED='${{ needs.detect.outputs.packages }}'
+          mapfile -t pkgs < <(echo "$CHANGED" | jq -r '.[]')
+          PLAN=$(bash ./scripts/build-release-plan.sh "${pkgs[@]}")
+          echo "plan=$PLAN" >> "$GITHUB_OUTPUT"
+          echo "Release plan: $PLAN"
 
-      - name: Check if version already exists
-        id: check
+      - name: Execute release plan
         run: |
-          FULL_PKG="@ssoeasy-dev/${{ matrix.package }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          if npm view "$FULL_PKG@$VERSION" version >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
+          PLAN='${{ steps.plan.outputs.plan }}'
+          LEVELS=$(echo "$PLAN" | jq -c '.[]')
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          declare -A BETA_VERSIONS
+
+          for level in $LEVELS; do
+            echo "Processing level: $level"
+            PKGS=$(echo "$level" | jq -r '.[]')
+            for pkg in $PKGS; do
+              echo "Releasing beta for $pkg"
+
+              # Вычисляем базовую версию и номер сборки
+              NEXT_BASE=$(bash ./scripts/next-version.sh "$pkg")
+              LAST_BETA=$(git tag -l "${pkg}/v${NEXT_BASE}-beta.*" | sort -V | tail -n1)
+              if [ -z "$LAST_BETA" ]; then
+                BUILD=1
+              else
+                LAST_BUILD=$(echo "$LAST_BETA" | grep -oE '[0-9]+$' || echo "0")
+                BUILD=$((LAST_BUILD + 1))
+              fi
+              VERSION="${NEXT_BASE}-beta.${BUILD}"
+              TAG="${pkg}/v${VERSION}"
+              BETA_VERSIONS[$pkg]="$VERSION"
+
+              # Создаём Git-тег
+              echo "Creating beta tag: $TAG"
+              git tag -a "$TAG" -m "Beta version for $pkg"
+              git push origin "$TAG"
+
+              # Публикация (только для npm, Go пакеты публикуются только тегом)
+              if [[ "$pkg" == client/* && -f "$pkg/package.json" ]]; then
+                echo "Publishing npm package $pkg"
+                cd "$pkg"
+                cp ../../env-configs/develop.env .env 2>/dev/null || true
+                npm version "$VERSION" --no-git-tag-version --allow-same-version
+                pnpm install --frozen-lockfile
+                pnpm run build
+                pnpm publish --no-git-checks --tag beta --access public
+                cd ../..
+              elif [[ -f "$pkg/go.mod" ]]; then
+                echo "Go package $pkg: tag created, no registry publish"
+              fi
+            done
+
+            # Обновляем dev-зависимости на beta для всех пакетов этого уровня
+            UPDATE_ARGS=""
+            for pkg in "${!BETA_VERSIONS[@]}"; do
+              UPDATE_ARGS="$UPDATE_ARGS $pkg v${BETA_VERSIONS[$pkg]}"
+            done
+
+            if [ -n "$UPDATE_ARGS" ]; then
+              echo "Updating dev dependencies to beta versions: $UPDATE_ARGS"
+              bash ./scripts/update-deps.sh --mode=beta $UPDATE_ARGS
+              git push origin develop
+            fi
+          done
+
+          # Сохраняем информацию для последующих шагов
+          declare -p BETA_VERSIONS > beta_versions.env
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Update package.json version
-        if: steps.check.outputs.skip == 'false'
-        working-directory: ${{ matrix.package }}
+      - name: Cleanup dev tags (after successful beta release)
+        if: success()
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = '$VERSION';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
-
-      - name: Build package
-        if: steps.check.outputs.skip == 'false'
-        working-directory: ${{ matrix.package }}
-        run: pnpm run build
-
-      - name: Publish npm beta version
-        if: steps.check.outputs.skip == 'false'
-        working-directory: ${{ matrix.package }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm publish."
-            exit 0
+          # Извлекаем имя ветки из merge-коммита
+          HEAD_SHA="${{ github.sha }}"
+          MSG=$(git log -1 --format=%s "$HEAD_SHA")
+          BRANCH=$(echo "$MSG" | sed -n 's/.* from [^/]*\/\(.*\)$/\1/p')
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(echo "$MSG" | sed -n "s/.*Merge branch '\\(.*\\)' into .*/\\1/p")
           fi
-          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.dist_tag }}
+
+          if [ -n "$BRANCH" ]; then
+            SANITIZED=$(bash ./scripts/sanitize-branch.sh "$BRANCH")
+            echo "Cleaning dev tags for branch: $BRANCH (sanitized: $SANITIZED)"
+            for pkg in $(echo '${{ needs.detect.outputs.packages }}' | jq -r '.[]'); do
+              # Удаляем Git dev-теги
+              bash scripts/cleanup-tags.sh "$pkg" dev "$SANITIZED"
+
+              # Для npm-пакетов депрекейтим dev-версии и удаляем dist-tag
+              if [[ "$pkg" == client/* ]]; then
+                NPM_NAME=$(basename "$pkg")
+                FULL_PKG="@ssoeasy-dev/${NPM_NAME}"
+                DEV_VERSIONS=$(npm view "$FULL_PKG" versions --json 2>/dev/null | jq -r --arg pattern "-dev-${SANITIZED}" '.[] | select(contains($pattern))' || true)
+                for v in $DEV_VERSIONS; do
+                  npm deprecate "$FULL_PKG@$v" "Merged to develop, use beta version instead" || true
+                done
+                npm dist-tag rm "$FULL_PKG" "dev-${SANITIZED}" || true
+              fi
+            done
+          else
+            echo "Could not determine branch name, skipping dev tag cleanup."
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

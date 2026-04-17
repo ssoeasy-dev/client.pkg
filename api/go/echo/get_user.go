@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
@@ -17,11 +16,6 @@ type User struct {
 	UserID    uuid.UUID `json:"user_id"`
 	ServiceID uuid.UUID `json:"service_id"`
 	CompanyID uuid.UUID `json:"company_id"`
-	// Стандартные JWT claims.
-	Subject   string    `json:"sub"`
-	TokenID   string    `json:"jti"`
-	ExpiresAt time.Time `json:"exp"`
-	IssuedAt  time.Time `json:"iat"`
 }
 
 // rawClaims — внутренняя структура для json.Unmarshal из JWT payload.
@@ -29,11 +23,6 @@ type rawClaims struct {
 	UserID    string  `json:"user_id"`
 	ServiceID string  `json:"service_id"`
 	CompanyID string  `json:"company_id"`
-	Type      string  `json:"type"`
-	Sub       string  `json:"sub"`
-	Jti       string  `json:"jti"`
-	Exp       float64 `json:"exp"`
-	Iat       float64 `json:"iat"`
 }
 
 // ParseUser декодирует payload JWT access-токена и возвращает User.
@@ -43,48 +32,44 @@ type rawClaims struct {
 func ParseUser(token string) (*User, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
-		return nil, fmt.Errorf("authmw: invalid JWT format")
+		return nil, fmt.Errorf("goecho: invalid JWT format")
 	}
 
 	payload, err := base64.RawURLEncoding.DecodeString(parts[1])
 	if err != nil {
-		return nil, fmt.Errorf("authmw: base64 decode JWT payload: %w", err)
+		return nil, fmt.Errorf("goecho: base64 decode JWT payload: %w", err)
 	}
 
 	var raw rawClaims
 	if err := json.Unmarshal(payload, &raw); err != nil {
-		return nil, fmt.Errorf("authmw: unmarshal JWT payload: %w", err)
+		return nil, fmt.Errorf("goecho: unmarshal JWT payload: %w", err)
 	}
 
 	userID, err := uuid.Parse(raw.UserID)
 	if err != nil {
-		return nil, fmt.Errorf("authmw: parse user_id: %w", err)
+		return nil, fmt.Errorf("goecho: parse user_id: %w", err)
 	}
 
 	serviceID, err := uuid.Parse(raw.ServiceID)
 	if err != nil {
-		return nil, fmt.Errorf("authmw: parse service_id: %w", err)
+		return nil, fmt.Errorf("goecho: parse service_id: %w", err)
 	}
 
 	companyID, err := uuid.Parse(raw.CompanyID)
 	if err != nil {
-		return nil, fmt.Errorf("authmw: parse company_id: %w", err)
+		return nil, fmt.Errorf("goecho: parse company_id: %w", err)
 	}
 
 	return &User{
 		UserID:    userID,
 		ServiceID: serviceID,
 		CompanyID: companyID,
-		Subject:   raw.Sub,
-		TokenID:   raw.Jti,
-		ExpiresAt: time.Unix(int64(raw.Exp), 0),
-		IssuedAt:  time.Unix(int64(raw.Iat), 0),
 	}, nil
 }
 
 // ─── Echo helpers ─────────────────────────────────────────────────────────────
 
-const contextKeyUser = "authmw_user"
+const contextKeyUser = "goecho_user"
 
 // GetUser достаёт *User из Echo-контекста.
 // Работает только если перед этим был вызван миддлвар InjectUser (или RequirePermission с опцией WithInject).
@@ -97,11 +82,11 @@ func GetUser(c echo.Context) *User {
 // InjectUser — миддлвар, который парсит токен и кладёт *User в Echo-контекст.
 // Удобно ставить после RequirePermission, чтобы не парсить токен дважды.
 //
-//	e.Use(authmw.RequirePermission(client, permID), authmw.InjectUser())
+//	e.Use(goecho.RequirePermission(client, permID), goecho.InjectUser())
 //
 // Или отдельно на роуты, где не нужна проверка разрешений, но нужен пользователь:
 //
-//	e.GET("/profile", profileHandler, authmw.InjectUser())
+//	e.GET("/profile", profileHandler, goecho.InjectUser())
 func InjectUser() echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
