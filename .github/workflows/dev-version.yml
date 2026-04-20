@@ -121,7 +121,7 @@ jobs:
             npm version "$VERSION" --no-git-tag-version --allow-same-version
             
             # Устанавливаем зависимости и собираем
-            pnpm install --frozen-lockfile
+            pnpm install --frozen-lockfile --include=dev
             pnpm run build
             
             # Публикуем с dist-tag
