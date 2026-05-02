@@ -25,6 +25,7 @@ export interface AuthConfig {
   /** Полный URL, на который вернётся SSO после логина */
   redirectUri: string;
   loginPath: string;
+  environment: "production" | "development",
   /** URL страницы входа (по умолчанию http://localhost:5173/login) */
   authPageUrl?: string;
   clientConfig?: CreateAxiosDefaults;

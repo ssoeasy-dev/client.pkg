@@ -16,16 +16,15 @@
     "LICENSE"
   ],
   "scripts": {
-    "prebuild": "node ./scripts/generate-env-constants.js",
-    "build": "npm run prebuild && tsc",
+    "build": "tsc",
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "axios": "^1.13.5"
   },
   "devDependencies": {
+    "@types/axios": "^0.14.4",
     "@types/node": "^25.3.0",
-    "dotenv": "^17.3.1",
     "typescript": "^5.0.0"
   },
   "author": "MoreWiktor <MoreWiktor@yandex.ru>",
