@@ -2,60 +2,34 @@ name: Dev Version Management
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, closed]
-    branches: [develop, main]
+    types: [opened, synchronize, reopened, closed]
+    branches: [develop]
 
 jobs:
-  detect-changes:
-    name: Detect changed packages
-    if: github.event.action != 'closed' && github.base_ref == 'develop'
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
-    steps:
-      - name: Checkout PR Branch
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
+  detect:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/detect-changed-packages.yml
+    with:
+      base-ref: ${{ github.event.action == 'synchronize' && github.event.before || github.event.pull_request.base.sha }}
+      head-ref: ${{ github.event.action == 'synchronize' && github.event.after || github.event.pull_request.head.sha }}
+      fallback-branch: develop
 
-      - name: Detect changed packages
-        id: detect
-        run: |
-          CHANGED="[]"
-          if [ "${{ github.event.action }}" = "synchronize" ]; then
-            # Для synchronize: сравниваем последний пуш с предыдущим состоянием ветки
-            BASE="${{ github.event.before }}"
-            HEAD="${{ github.event.pull_request.head.sha }}"
-            DIFF_RANGE="$BASE $HEAD"
-          else
-            # Для opened/reopened: сравниваем с базовой веткой
-            BASE="origin/${{ github.base_ref }}"
-            HEAD="HEAD"
-            DIFF_RANGE="$BASE...$HEAD"
-          fi
-
-          if git diff --name-only $DIFF_RANGE | grep -q "^core/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["core"]')
-          fi
-          if git diff --name-only $DIFF_RANGE | grep -q "^react/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["react"]')
-          fi
-          echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
-
-  publish:
-    name: Publish dev version for ${{ matrix.package }}
-    needs: detect-changes
-    if: github.event.action != 'closed' && needs.detect-changes.outputs.matrix != '{"package":[]}'
+  create-dev:
+    name: Create Dev Version
+    needs: detect
+    if: |
+      github.event.action != 'closed' &&
+      needs.detect.outputs.packages != '[]'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       pull-requests: write
       id-token: write
     strategy:
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
     steps:
-      - name: Checkout PR Branch
+      - name: Checkout PR branch
         uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
@@ -67,145 +41,158 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install pnpm
-        run: npm install -g pnpm
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare environment configuration
-        working-directory: ${{ matrix.package }}
+      - name: Install pnpm and jq
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
-          BRANCH_SLUG=$(echo "$BRANCH_NAME" | sed 's/[^a-zA-Z0-9-]/-/g' | tr '[:upper:]' '[:lower:]')
-          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
-          if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" .env
-            echo "✅ Environment config loaded from $CONFIG_FILE"
-          else
-            echo "❌ Environment config file not found: $CONFIG_FILE"
-            exit 1
-          fi
+          npm install -g pnpm
+          sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Prepare Dev Version
+      - name: Compute next base version
         id: version
-        working-directory: ${{ matrix.package }}
         run: |
-          BASE_VERSION=$(node -e "console.log(require('./package.json').version)")
-          BRANCH_NAME="${{ github.head_ref }}"
-          BRANCH_PART="${BRANCH_NAME//\//-}"
-          BRANCH_PART="${BRANCH_PART//_/-}"
-          BRANCH_PART=$(echo "$BRANCH_PART" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+          PKG="${{ matrix.package }}"
+          NEXT_BASE=$(bash ./scripts/next-version.sh "$PKG")
+          echo "next_base=$NEXT_BASE" >> "$GITHUB_OUTPUT"
 
-          COMMIT_SHA="${{ github.event.pull_request.head.sha }}"
-          COMMIT_SHORT="${COMMIT_SHA:0:7}"
+      - name: Sanitize branch name
+        id: branch
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
+        run: |
+          SANITIZED=$(bash ./scripts/sanitize-branch.sh "$PR_BRANCH")
+          echo "sanitized=$SANITIZED" >> "$GITHUB_OUTPUT"
 
-          if [ "${{ github.event.action }}" = "synchronize" ]; then
-            VERSION="${BASE_VERSION}-dev-${BRANCH_PART}.${COMMIT_SHORT}"
+      - name: Determine build number
+        id: build
+        run: |
+          PKG="${{ matrix.package }}"
+          BASE="${{ steps.version.outputs.next_base }}"
+          BRANCH="${{ steps.branch.outputs.sanitized }}"
+
+          PATTERN="${PKG}/v${BASE}-dev-${BRANCH}.[0-9]*"
+          EXISTING=$(git tag -l "$PATTERN" | sort -V | tail -n1)
+
+          if [ -z "$EXISTING" ]; then
+            BUILD=1
           else
-            VERSION="${BASE_VERSION}-dev-${BRANCH_PART}"
+            LAST_BUILD=$(echo "$EXISTING" | grep -oE '[0-9]+$' || echo "0")
+            BUILD=$((LAST_BUILD + 1))
           fi
+          echo "build=$BUILD" >> "$GITHUB_OUTPUT"
 
-          NPM_DIST_TAG="dev-${BRANCH_PART}"
+      - name: Create Git tag
+        id: tag
+        run: |
+          PKG="${{ matrix.package }}"
+          BASE="${{ steps.version.outputs.next_base }}"
+          BRANCH="${{ steps.branch.outputs.sanitized }}"
+          BUILD="${{ steps.build.outputs.build }}"
 
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "npm_dist_tag=$NPM_DIST_TAG" >> $GITHUB_OUTPUT
+          TAG="${PKG}/v${BASE}-dev-${BRANCH}.${BUILD}"
+          echo "Creating tag: $TAG"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "$TAG" -m "Dev version for $PKG from branch ${{ github.head_ref }}"
+          git push origin "$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#${PKG}/v}" >> "$GITHUB_OUTPUT"
 
-      - name: Update package.json version
+      - name: Publish package (conditional)
         working-directory: ${{ matrix.package }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
-          node -e "
-          const fs = require('fs');
-          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          pkg.version = '$VERSION';
-          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
-          "
+          VERSION="${{ steps.tag.outputs.version }}"
 
-      - name: Build package
-        working-directory: ${{ matrix.package }}
-        run: pnpm run build
-
-      - name: Publish npm dev version
-        working-directory: ${{ matrix.package }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm publish."
+          # Для Go пакета — только тег, без публикации в реестр
+          if [[ -f "go.mod" ]]; then
+            echo "Go package: only tag created, no registry publish"
             exit 0
           fi
-          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.npm_dist_tag }} --access public
+
+          # Для npm пакета
+          if [[ -f "package.json" ]]; then
+            # Загружаем конфиг окружения (develop.env)
+            cp ../env-configs/develop.env .env 2>/dev/null || true
+            
+            # Обновляем версию в package.json
+            npm version "$VERSION" --no-git-tag-version --allow-same-version
+            
+            # Устанавливаем зависимости и собираем
+            pnpm install --frozen-lockfile --include=dev
+            pnpm run build
+            
+            # Публикуем с dist-tag
+            DIST_TAG="dev-${{ steps.branch.outputs.sanitized }}"
+            pnpm publish --no-git-checks --tag "$DIST_TAG" --access public
+          fi
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Comment on PR
-        uses: actions/github-script@v6
+        uses: actions/github-script@v7
         with:
           script: |
-            const version = '${{ steps.version.outputs.version }}';
-            const npmDistTag = '${{ steps.version.outputs.npm_dist_tag }}';
-            const pkgName = '${{ matrix.package }}';
-            const fullPkgName = '@ssoeasy-dev/' + pkgName;
-            const action = context.payload.action;
-            const commitSha = context.payload.pull_request.head.sha.substring(0, 7);
+            const pkg = '${{ matrix.package }}';
+            const version = '${{ steps.tag.outputs.version }}';
+            const distTag = 'dev-${{ steps.branch.outputs.sanitized }}';
 
-            let title, message;
-            if (action === 'synchronize') {
-              title = '🔄 Dev Version Updated for ' + pkgName;
-              message = `Dev version for \`${pkgName}\` has been updated to the latest commit (\`${commitSha}\`).`;
+            let installCmd;
+            if (pkg.includes('api/go')) {
+              installCmd = `go get github.com/ssoeasy-dev/client.pkg/${pkg}@${version}`;
             } else {
-              title = '📦 Dev Version Created for ' + pkgName;
-              message = `Dev version for \`${pkgName}\` has been created for this PR.`;
+              const npmName = pkg.split('/').pop();
+              installCmd = `npm install @ssoeasy-dev/${npmName}@${distTag}`;
             }
 
-            const body = [
-              `## ${title}`,
-              '',
-              message,
-              '',
-              '**Usage:**',
-              '```bash',
-              `npm install ${fullPkgName}@${npmDistTag}`,
-              '```',
-              '',
-              `**NPM version:** \`${version}\` (unique per commit)`,
-              '',
-              '> ⚠️ This is a temporary development version. It will be automatically updated on each push and deleted after merging this PR.'
-            ].join('\n');
+            const body = `## 📦 Dev version for \`${pkg}\`
 
-            const comments = await github.rest.issues.listComments({
+            **Version:** \`${version}\`
+            **Install:** \`${installCmd}\`
+
+            > ⚠️ Temporary development version. Will be cleaned up after PR merge/close.`;
+
+            const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: context.issue.number,
             });
 
-            const botComment = comments.data.find(comment => 
-              comment.user.type === 'Bot' && 
-              comment.body.includes('Dev Version for ' + pkgName)
-            );
+            const marker = `Dev version for \`${pkg}\``;
+            const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
 
             if (botComment) {
               await github.rest.issues.updateComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 comment_id: botComment.id,
-                body: body
+                body
               });
             } else {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: context.issue.number,
-                body: body
+                body
               });
             }
 
-  cleanup:
-    name: Cleanup Dev Versions
-    if: github.event.action == 'closed'
+  cleanup-dev-unmerged:
+    name: Cleanup Dev Tags (unmerged PR)
+    needs: detect
+    if: |
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged == false &&
+      needs.detect.outputs.packages != '[]'
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -218,67 +205,30 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Prepare Dev Version for Cleanup
-        id: version
+      - name: Sanitize branch name
+        id: branch
+        env:
+          PR_BRANCH: ${{ github.head_ref }}
         run: |
-          BRANCH_NAME="${{ github.head_ref }}"
-          BRANCH_PART="${BRANCH_NAME//\//-}"
-          BRANCH_PART="${BRANCH_PART//_/-}"
-          BRANCH_PART=$(echo "$BRANCH_PART" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]//g')
+          SANITIZED=$(bash ./scripts/sanitize-branch.sh "$PR_BRANCH")
+          echo "sanitized=$SANITIZED" >> "$GITHUB_OUTPUT"
 
-          echo "npm_dist_tag=dev-${BRANCH_PART}" >> $GITHUB_OUTPUT
-          echo "branch_part=${BRANCH_PART}" >> $GITHUB_OUTPUT
-
-      - name: Unpublish npm dev versions for all packages
+      - name: Delete Git dev tags
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm unpublish."
-            exit 0
-          fi
+          bash scripts/cleanup-tags.sh "${{ matrix.package }}" dev "${{ steps.branch.outputs.sanitized }}"
 
-          NPM_DIST_TAG="${{ steps.version.outputs.npm_dist_tag }}"
-          BRANCH_PART="${{ steps.version.outputs.branch_part }}"
-          PACKAGES=("core" "react")
+      - name: Deprecate npm dev versions (if npm package)
+        if: contains(matrix.package, 'client/')
+        run: |
+          PKG="${{ matrix.package }}"
+          NPM_NAME=$(basename "$PKG")
+          FULL_PKG="@ssoeasy-dev/${NPM_NAME}"
+          BRANCH="${{ steps.branch.outputs.sanitized }}"
 
-          for PKG in "${PACKAGES[@]}"; do
-            FULL_PKG="@ssoeasy-dev/${PKG}"
-            echo "🗑️  Cleaning up npm versions for package $FULL_PKG with dist-tag $NPM_DIST_TAG"
-            
-            ALL_VERSIONS=$(npm view $FULL_PKG versions --json 2>/dev/null || echo "[]")
-            
-            VERSIONS_TO_DELETE=$(echo "$ALL_VERSIONS" | node -e "
-              const versions = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-              const branchPart = process.argv[1];
-              const matching = versions.filter(v => v.includes('-dev-' + branchPart));
-              console.log(matching.join(' '));
-            " "$BRANCH_PART")
-            
-            if [ -n "$VERSIONS_TO_DELETE" ]; then
-              echo "📦 Found versions to delete for $FULL_PKG:"
-              for VERSION in $VERSIONS_TO_DELETE; do
-                echo "   - $VERSION"
-              done
-              
-              for VERSION in $VERSIONS_TO_DELETE; do
-                echo -n "   Unpublishing $VERSION... "
-                if npm unpublish "$FULL_PKG@$VERSION" 2>/dev/null; then
-                  echo "✅"
-                else
-                  echo "⚠️  (failed or doesn't exist)"
-                fi
-              done
-            else
-              echo "ℹ️  No versions found for $FULL_PKG matching pattern: -dev-${BRANCH_PART}"
-            fi
-            
-            echo "🗑️  Removing dist-tag $NPM_DIST_TAG for $FULL_PKG..."
-            if npm dist-tag rm $FULL_PKG "$NPM_DIST_TAG" 2>/dev/null; then
-              echo "✅ NPM dist-tag $NPM_DIST_TAG removed for $FULL_PKG"
-            else
-              echo "⚠️  Could not remove dist-tag $NPM_DIST_TAG (may not exist)"
-            fi
+          VERSIONS=$(npm view "$FULL_PKG" versions --json 2>/dev/null | jq -r --arg pattern "-dev-${BRANCH}" '.[] | select(contains($pattern))' || true)
+          for v in $VERSIONS; do
+            npm deprecate "$FULL_PKG@$v" "Development version from unmerged PR" || true
           done
-
-          echo "✅ Cleanup completed"
+          npm dist-tag rm "$FULL_PKG" "dev-${BRANCH}" || true
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

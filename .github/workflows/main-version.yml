@@ -1,59 +1,32 @@
-name: Main Version Management
+name: Release
 
 on:
   push:
     branches: [main]
 
 jobs:
-  detect-changes:
-    name: Detect changed packages
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
-    steps:
-      - name: Checkout Main Branch
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
+  detect:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/detect-changed-packages.yml
+    with:
+      base-ref: ${{ github.event.before }}
+      head-ref: ${{ github.sha }}
+      fallback-branch: main
 
-      - name: Detect changed packages
-        id: detect
-        run: |
-          CHANGED="[]"
-          if [ -n "${{ github.event.before }}" ]; then
-            BASE="${{ github.event.before }}"
-          else
-            echo "No previous commit found, publishing all packages"
-            CHANGED='["core","react"]'
-            echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^core/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["core"]')
-          fi
-          if git diff --name-only $BASE ${{ github.sha }} | grep -q "^react/"; then
-            CHANGED=$(echo $CHANGED | jq '. + ["react"]')
-          fi
-
-          echo "matrix={\"package\":$(echo $CHANGED)}" >> $GITHUB_OUTPUT
-
-  publish:
-    name: Publish main version for ${{ matrix.package }}
-    needs: detect-changes
-    if: needs.detect-changes.outputs.matrix != '{"package":[]}'
+  release-stable:
+    name: Create Stable Releases
+    needs: detect
+    if: |
+      needs.detect.outputs.packages != '[]' &&
+      !contains(github.event.head_commit.message, 'chore(deps): update')
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       id-token: write
-    strategy:
-      matrix: ${{ fromJson(needs.detect-changes.outputs.matrix) }}
     steps:
-      - name: Checkout Main Branch
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Setup Node.js
@@ -62,126 +35,170 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Install pnpm
-        run: npm install -g pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Prepare environment configuration
-        working-directory: ${{ matrix.package }}
-        run: |
-          BRANCH_SLUG="main"
-          CONFIG_FILE="../env-configs/${BRANCH_SLUG}.env"
-          if [ -f "$CONFIG_FILE" ]; then
-            cp "$CONFIG_FILE" .env
-            echo "✅ Environment config loaded from $CONFIG_FILE"
-          else
-            echo "❌ Environment config file not found: $CONFIG_FILE"
-            exit 1
-          fi
-
-      - name: Prepare Main Version
-        id: version
-        working-directory: ${{ matrix.package }}
-        run: |
-          VERSION=$(node -e "console.log(require('./package.json').version)")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "dist_tag=latest" >> $GITHUB_OUTPUT
-
-      - name: Check if version already exists
-        id: check
-        run: |
-          FULL_PKG="@ssoeasy-dev/${{ matrix.package }}"
-          VERSION="${{ steps.version.outputs.version }}"
-          if npm view "$FULL_PKG@$VERSION" version >/dev/null 2>&1; then
-            echo "skip=true" >> $GITHUB_OUTPUT
-          else
-            echo "skip=false" >> $GITHUB_OUTPUT
-          fi
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Build package
-        if: steps.check.outputs.skip == 'false'
-        working-directory: ${{ matrix.package }}
-        run: pnpm run build
-
-      - name: Publish npm main version
-        if: steps.check.outputs.skip == 'false'
-        working-directory: ${{ matrix.package }}
-        run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping npm publish."
-            exit 0
-          fi
-          pnpm publish --no-git-checks --tag ${{ steps.version.outputs.dist_tag }}
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-  cleanup-beta:
-    name: Cleanup Beta Versions
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
+          go-version: "1.24"
 
-      - name: Cleanup beta versions for all packages
+      - name: Install pnpm and jq
         run: |
-          if [ -z "$NODE_AUTH_TOKEN" ]; then
-            echo "⚠️  Warning: NPM_TOKEN secret not set. Skipping beta cleanup."
-            exit 0
-          fi
+          npm install -g pnpm
+          sudo apt-get update && sudo apt-get install -y jq
 
-          PACKAGES=("core" "react")
+      - name: Build release plan
+        id: plan
+        run: |
+          CHANGED='${{ needs.detect.outputs.packages }}'
+          mapfile -t pkgs < <(echo "$CHANGED" | jq -r '.[]')
+          PLAN=$(bash ./scripts/build-release-plan.sh "${pkgs[@]}")
+          echo "plan=$PLAN" >> "$GITHUB_OUTPUT"
+          echo "Release plan: $PLAN"
 
-          for PKG in "${PACKAGES[@]}"; do
-            FULL_PKG="@ssoeasy-dev/${PKG}"
-            echo "🧹 Cleaning up beta versions for package $FULL_PKG"
-            
-            ALL_VERSIONS=$(npm view $FULL_PKG versions --json 2>/dev/null || echo "[]")
-            
-            BETA_VERSIONS=$(echo "$ALL_VERSIONS" | node -e "
-              const versions = JSON.parse(require('fs').readFileSync(0, 'utf-8'));
-              const betaVersions = versions.filter(v => v.includes('-beta.'));
-              console.log(betaVersions.join(' '));
-            ")
-            
-            if [ -n "$BETA_VERSIONS" ]; then
-              echo "📦 Found beta versions to cleanup for $FULL_PKG:"
-              for VERSION in $BETA_VERSIONS; do
-                echo "  - $VERSION"
-              done
-              
-              for VERSION in $BETA_VERSIONS; do
-                echo "🗑️  Attempting to unpublish $VERSION..."
-                if npm unpublish "$FULL_PKG@$VERSION" 2>/dev/null; then
-                  echo "  ✅ Version $VERSION successfully unpublished"
-                else
-                  echo "  ⚠️  Could not unpublish $VERSION (may be older than 72 hours)"
+      - name: Execute release plan
+        id: release
+        run: |
+          PLAN='${{ steps.plan.outputs.plan }}'
+          LEVELS=$(echo "$PLAN" | jq -c '.[]')
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          declare -A STABLE_VERSIONS
+
+          for level in $LEVELS; do
+            echo "Processing level: $level"
+            PKGS=$(echo "$level" | jq -r '.[]')
+            for pkg in $PKGS; do
+              echo "Releasing stable version for $pkg"
+
+              # Находим последний beta-тег для этого пакета
+              LAST_BETA=$(git tag -l "${pkg}/v*-beta.*" | sort -V | tail -n1)
+              if [ -z "$LAST_BETA" ]; then
+                echo "No beta tag found for $pkg, skipping stable release."
+                continue
+              fi
+
+              BASE_VERSION="${LAST_BETA#${pkg}/v}"
+              BASE_VERSION="${BASE_VERSION%-beta.*}"
+
+              # Проверяем, не выпускали ли мы уже стабильную версию с такой или более новой
+              LAST_STABLE=$(git tag -l "${pkg}/v*" | grep -E "^${pkg}/v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n1)
+              if [ -n "$LAST_STABLE" ]; then
+                STABLE_VER="${LAST_STABLE#${pkg}/v}"
+                if [ "$(printf '%s\n' "$STABLE_VER" "$BASE_VERSION" | sort -V | tail -n1)" = "$STABLE_VER" ]; then
+                  echo "Stable version $STABLE_VER is already >= $BASE_VERSION, skipping."
+                  continue
                 fi
+              fi
+
+              TAG="${pkg}/v${BASE_VERSION}"
+              STABLE_VERSIONS[$pkg]="$BASE_VERSION"
+
+              # Создаём Git-тег
+              echo "Creating stable tag: $TAG"
+              git tag -a "$TAG" -m "Release $pkg $BASE_VERSION"
+              git push origin "$TAG"
+
+              # Публикация пакета
+              if [[ "$pkg" == client/* && -f "$pkg/package.json" ]]; then
+                echo "Publishing npm package $pkg"
+                cd "$pkg"
+                cp ../../env-configs/main.env .env 2>/dev/null || true
+                npm version "$BASE_VERSION" --no-git-tag-version --allow-same-version
+                pnpm install --frozen-lockfile
+                pnpm run build
+                pnpm publish --no-git-checks --tag latest --access public
+                cd ../..
+              elif [[ -f "$pkg/go.mod" ]]; then
+                echo "Go package $pkg: tag created, no registry publish"
+              fi
+            done
+
+            # Обновляем beta-зависимости на стабильные версии
+            UPDATE_ARGS=""
+            for pkg in "${!STABLE_VERSIONS[@]}"; do
+              UPDATE_ARGS="$UPDATE_ARGS $pkg v${STABLE_VERSIONS[$pkg]}"
+            done
+
+            if [ -n "$UPDATE_ARGS" ]; then
+              echo "Updating beta dependencies to stable versions: $UPDATE_ARGS"
+              bash ./scripts/update-deps.sh --mode=stable $UPDATE_ARGS
+              git push origin main
+            fi
+          done
+
+          # Сохраняем массив версий для следующих шагов
+          declare -p STABLE_VERSIONS > stable_versions.env
+
+      - name: Generate changelog for each package
+        if: always()
+        run: |
+          if [ ! -f stable_versions.env ]; then
+            echo "stable_versions.env not found, skipping changelog generation."
+            exit 0
+          fi
+          source stable_versions.env
+          mkdir -p changelogs
+          for pkg in $(echo '${{ needs.detect.outputs.packages }}' | jq -r '.[]'); do
+            LAST_STABLE=$(git tag -l "${pkg}/v*" | grep -E "^${pkg}/v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n2 | head -n1)
+            NEW_STABLE=$(git tag -l "${pkg}/v*" | grep -E "^${pkg}/v[0-9]+\.[0-9]+\.[0-9]+$" | sort -V | tail -n1)
+            if [ -z "$NEW_STABLE" ]; then
+              echo "No stable tag found for $pkg, skipping changelog generation."
+              continue
+            fi
+            if [ -z "$LAST_STABLE" ]; then
+              RANGE="$NEW_STABLE"
+            else
+              RANGE="${LAST_STABLE}..${NEW_STABLE}"
+            fi
+            git log "$RANGE" --format="- %s (%h)" -- "${pkg}/" > "changelogs/${pkg}.txt"
+          done
+
+      - name: Create GitHub Releases
+        if: always()
+        run: |
+          if [ ! -f stable_versions.env ]; then
+            echo "stable_versions.env not found, skipping release creation."
+            exit 0
+          fi
+          source stable_versions.env
+          for pkg in $(echo '${{ needs.detect.outputs.packages }}' | jq -r '.[]'); do
+            TAG="${pkg}/v${STABLE_VERSIONS[$pkg]}"
+            if git rev-parse "$TAG" >/dev/null 2>&1; then
+              echo "Creating release for $TAG"
+              gh release create "$TAG" \
+                --repo "${{ github.repository }}" \
+                --title "$pkg ${STABLE_VERSIONS[$pkg]}" \
+                --notes-file "changelogs/${pkg}.txt" \
+                --target "${{ github.sha }}"
+            else
+              echo "Tag $TAG not found, skipping release"
+            fi
+          done
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cleanup beta tags and npm versions
+        if: success()
+        run: |
+          if [ ! -f stable_versions.env ]; then
+            echo "stable_versions.env not found, skipping beta cleanup."
+            exit 0
+          fi
+          source stable_versions.env
+          for pkg in "${!STABLE_VERSIONS[@]}"; do
+            echo "Cleaning beta tags for $pkg"
+            bash scripts/cleanup-tags.sh "$pkg" beta
+
+            # Депрекейтим beta-версии в npm
+            if [[ "$pkg" == client/* ]]; then
+              NPM_NAME=$(basename "$pkg")
+              FULL_PKG="@ssoeasy-dev/${NPM_NAME}"
+              BETA_VERSIONS=$(npm view "$FULL_PKG" versions --json 2>/dev/null | jq -r '.[] | select(contains("-beta."))' || true)
+              for v in $BETA_VERSIONS; do
+                npm deprecate "$FULL_PKG@$v" "Superseded by stable release" || true
               done
-            else
-              echo "ℹ️  No beta versions found for $FULL_PKG"
             fi
           done
-
-          echo "🗑️  Removing beta dist-tag for all packages..."
-          for PKG in "${PACKAGES[@]}"; do
-            FULL_PKG="@ssoeasy-dev/${PKG}"
-            if npm dist-tag rm $FULL_PKG beta 2>/dev/null; then
-              echo "  ✅ Beta dist-tag removed for $FULL_PKG"
-            else
-              echo "  ℹ️  Beta dist-tag not found or already removed for $FULL_PKG"
-            fi
-          done
-
-          echo "✅ Beta versions cleanup completed"
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
