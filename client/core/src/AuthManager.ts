@@ -22,7 +22,7 @@ import {
   BASE_URL,
   LOGOUT_PATH,
   ME_PATH,
-} from "./constants.generated";
+} from "./constants";
 
 export class AuthManager {
   private serviceId: string;
@@ -50,13 +50,13 @@ export class AuthManager {
     this.serviceId = config.serviceId;
     this.redirectUri = config.redirectUri;
     this.loginPath = config.loginPath;
-    this.authPageUrl = config.authPageUrl || AUTH_PAGE;
-    this.baseURL = config.authServerConfig?.baseURL || BASE_URL;
+    this.authPageUrl = config.authPageUrl || AUTH_PAGE[config.environment];
+    this.baseURL = config.authServerConfig?.baseURL || BASE_URL[config.environment];
     this.endpoints = {
       authorize:
-        config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH,
-      logout: config.authServerConfig?.endpoints?.logout || LOGOUT_PATH,
-      me: config.authServerConfig?.endpoints?.me || ME_PATH,
+        config.authServerConfig?.endpoints?.authorize || AUTHORIZE_PATH[config.environment],
+      logout: config.authServerConfig?.endpoints?.logout || LOGOUT_PATH[config.environment],
+      me: config.authServerConfig?.endpoints?.me || ME_PATH[config.environment],
     };
 
     if (typeof window === "undefined") {
