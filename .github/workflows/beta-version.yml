@@ -50,6 +50,9 @@ jobs:
           npm install -g pnpm
           sudo apt-get update && sudo apt-get install -y jq
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Build release plan
         id: plan
         run: |
@@ -97,9 +100,7 @@ jobs:
               if [[ "$pkg" == client/* && -f "$pkg/package.json" ]]; then
                 echo "Publishing npm package $pkg"
                 cd "$pkg"
-                cp ../../env-configs/develop.env .env 2>/dev/null || true
                 npm version "$VERSION" --no-git-tag-version --allow-same-version
-                pnpm install --frozen-lockfile
                 pnpm run build
                 pnpm publish --no-git-checks --tag beta --access public
                 cd ../..

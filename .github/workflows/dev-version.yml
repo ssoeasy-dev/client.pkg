@@ -114,9 +114,6 @@ jobs:
 
           # Для npm пакета
           if [[ -f "package.json" ]]; then
-            # Загружаем конфиг окружения (develop.env)
-            cp ../env-configs/develop.env .env 2>/dev/null || true
-            
             # Обновляем версию в package.json
             npm version "$VERSION" --no-git-tag-version --allow-same-version
             
