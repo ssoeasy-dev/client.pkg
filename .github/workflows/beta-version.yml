@@ -50,9 +50,6 @@ jobs:
           npm install -g pnpm
           sudo apt-get update && sudo apt-get install -y jq
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Build release plan
         id: plan
         run: |

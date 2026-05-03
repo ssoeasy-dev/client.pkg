@@ -52,7 +52,7 @@ jobs:
         if: contains(matrix.package, 'client/') && hashFiles(format('{0}/package.json', matrix.package)) != ''
         working-directory: ${{ matrix.package }}
         run: |
-          pnpm install --frozen-lockfile
+          pnpm install
           pnpm run lint || true  # если линтера нет, пропускаем
 
       - name: Lint Go package
