@@ -98,6 +98,7 @@ jobs:
                 echo "Publishing npm package $pkg"
                 cd "$pkg"
                 npm version "$VERSION" --no-git-tag-version --allow-same-version
+                pnpm install --frozen-lockfile
                 pnpm run build
                 pnpm publish --no-git-checks --tag beta --access public
                 cd ../..
