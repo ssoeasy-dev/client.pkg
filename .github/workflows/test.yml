@@ -52,7 +52,7 @@ jobs:
         if: contains(matrix.package, 'client/') && hashFiles(format('{0}/package.json', matrix.package)) != ''
         working-directory: ${{ matrix.package }}
         run: |
-          pnpm install
+          pnpm install --frozen-lockfile
           pnpm run test || true
 
       - name: Test Go package
