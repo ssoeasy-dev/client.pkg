@@ -1,0 +1,161 @@
+name: Beta Version Management
+
+on:
+  push:
+    branches: [develop]
+
+concurrency:
+  group: beta-version-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Detect Changed Packages
+    uses: ./.github/workflows/detect-changed-packages.yml
+    with:
+      base-ref: ${{ github.event.before }}
+      head-ref: ${{ github.sha }}
+      fallback-branch: develop
+
+  release-beta:
+    name: Release Beta Versions
+    needs: detect
+    if: |
+      needs.detect.outputs.packages != '[]' &&
+      !contains(github.event.head_commit.message, 'chore(deps): update')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install pnpm and jq
+        run: |
+          npm install -g pnpm
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Build release plan
+        id: plan
+        run: |
+          CHANGED='${{ needs.detect.outputs.packages }}'
+          mapfile -t pkgs < <(echo "$CHANGED" | jq -r '.[]')
+          PLAN=$(bash ./scripts/build-release-plan.sh "${pkgs[@]}")
+          echo "plan=$PLAN" >> "$GITHUB_OUTPUT"
+          echo "Release plan: $PLAN"
+
+      - name: Execute release plan
+        run: |
+          PLAN='${{ steps.plan.outputs.plan }}'
+          LEVELS=$(echo "$PLAN" | jq -c '.[]')
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          declare -A BETA_VERSIONS
+
+          for level in $LEVELS; do
+            echo "Processing level: $level"
+            PKGS=$(echo "$level" | jq -r '.[]')
+            for pkg in $PKGS; do
+              echo "Releasing beta for $pkg"
+
+              # Вычисляем базовую версию и номер сборки
+              NEXT_BASE=$(bash ./scripts/next-version.sh "$pkg")
+              LAST_BETA=$(git tag -l "${pkg}/v${NEXT_BASE}-beta.*" | sort -V | tail -n1)
+              if [ -z "$LAST_BETA" ]; then
+                BUILD=1
+              else
+                LAST_BUILD=$(echo "$LAST_BETA" | grep -oE '[0-9]+$' || echo "0")
+                BUILD=$((LAST_BUILD + 1))
+              fi
+              VERSION="${NEXT_BASE}-beta.${BUILD}"
+              TAG="${pkg}/v${VERSION}"
+              BETA_VERSIONS[$pkg]="$VERSION"
+
+              # Создаём Git-тег
+              echo "Creating beta tag: $TAG"
+              git tag -a "$TAG" -m "Beta version for $pkg"
+              git push origin "$TAG"
+
+              # Публикация (только для npm, Go пакеты публикуются только тегом)
+              if [[ "$pkg" == client/* && -f "$pkg/package.json" ]]; then
+                echo "Publishing npm package $pkg"
+                cd "$pkg"
+                npm version "$VERSION" --no-git-tag-version --allow-same-version
+                pnpm install --frozen-lockfile
+                pnpm run build
+                pnpm publish --no-git-checks --tag beta --access public
+                cd ../..
+              elif [[ -f "$pkg/go.mod" ]]; then
+                echo "Go package $pkg: tag created, no registry publish"
+              fi
+            done
+
+            # Обновляем dev-зависимости на beta для всех пакетов этого уровня
+            UPDATE_ARGS=""
+            for pkg in "${!BETA_VERSIONS[@]}"; do
+              UPDATE_ARGS="$UPDATE_ARGS $pkg v${BETA_VERSIONS[$pkg]}"
+            done
+
+            if [ -n "$UPDATE_ARGS" ]; then
+              echo "Updating dev dependencies to beta versions: $UPDATE_ARGS"
+              bash ./scripts/update-deps.sh --mode=beta $UPDATE_ARGS
+              git push origin develop
+            fi
+          done
+
+          # Сохраняем информацию для последующих шагов
+          declare -p BETA_VERSIONS > beta_versions.env
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Cleanup dev tags (after successful beta release)
+        if: success()
+        run: |
+          # Извлекаем имя ветки из merge-коммита
+          HEAD_SHA="${{ github.sha }}"
+          MSG=$(git log -1 --format=%s "$HEAD_SHA")
+          BRANCH=$(echo "$MSG" | sed -n 's/.* from [^/]*\/\(.*\)$/\1/p')
+          if [ -z "$BRANCH" ]; then
+            BRANCH=$(echo "$MSG" | sed -n "s/.*Merge branch '\\(.*\\)' into .*/\\1/p")
+          fi
+
+          if [ -n "$BRANCH" ]; then
+            SANITIZED=$(bash ./scripts/sanitize-branch.sh "$BRANCH")
+            echo "Cleaning dev tags for branch: $BRANCH (sanitized: $SANITIZED)"
+            for pkg in $(echo '${{ needs.detect.outputs.packages }}' | jq -r '.[]'); do
+              # Удаляем Git dev-теги
+              bash scripts/cleanup-tags.sh "$pkg" dev "$SANITIZED"
+
+              # Для npm-пакетов депрекейтим dev-версии и удаляем dist-tag
+              if [[ "$pkg" == client/* ]]; then
+                NPM_NAME=$(basename "$pkg")
+                FULL_PKG="@ssoeasy-dev/${NPM_NAME}"
+                DEV_VERSIONS=$(npm view "$FULL_PKG" versions --json 2>/dev/null | jq -r --arg pattern "-dev-${SANITIZED}" '.[] | select(contains($pattern))' || true)
+                for v in $DEV_VERSIONS; do
+                  npm deprecate "$FULL_PKG@$v" "Merged to develop, use beta version instead" || true
+                done
+                npm dist-tag rm "$FULL_PKG" "dev-${SANITIZED}" || true
+              fi
+            done
+          else
+            echo "Could not determine branch name, skipping dev tag cleanup."
+          fi
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

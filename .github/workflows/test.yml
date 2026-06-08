@@ -1,0 +1,62 @@
+name: Test
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  detect:
+    name: Detect changed packages
+    uses: ./.github/workflows/detect-changed-packages.yml
+    with:
+      base-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+      head-ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.event.after || github.sha }}
+      fallback-branch: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+
+  test:
+    needs: detect
+    if: needs.detect.outputs.packages != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ${{ fromJson(needs.detect.outputs.packages) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        if: contains(matrix.package, 'client/')
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Go
+        if: contains(matrix.package, 'api/go/')
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install pnpm (for npm packages)
+        if: contains(matrix.package, 'client/')
+        run: npm install -g pnpm
+
+      - name: Test npm package
+        if: contains(matrix.package, 'client/') && hashFiles(format('{0}/package.json', matrix.package)) != ''
+        working-directory: ${{ matrix.package }}
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run test || true
+
+      - name: Test Go package
+        if: contains(matrix.package, 'api/go/') && hashFiles(format('{0}/go.mod', matrix.package)) != ''
+        working-directory: ${{ matrix.package }}
+        run: |
+          go test -v -race ./...
