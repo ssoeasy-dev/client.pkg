@@ -5,7 +5,7 @@ go 1.24.11
 require (
 	github.com/google/uuid v1.6.0
 	github.com/labstack/echo/v4 v4.15.1
-	github.com/ssoeasy-dev/client.pkg/api/go/core v1.0.0-dev-ci-cd.1
+	github.com/ssoeasy-dev/client.pkg/api/go/core v1.0.0
 )
 
 require (
