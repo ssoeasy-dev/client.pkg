@@ -4,35 +4,26 @@ TypeScript SDK для подключения внешних приложений
 
 ## Пакеты
 
-| Пакет   | npm                  | Описание                                                   |
-| ------- | -------------------- | ---------------------------------------------------------- |
-| `core`  | `@ssoeasy-dev/core`  | Фреймворк-агностичный `AuthManager` — OAuth 2.0 PKCE flow  |
-| `react` | `@ssoeasy-dev/react` | React-адаптер: `AuthProvider`, `useAuth`, `ProtectedRoute` |
-
-Планируется: `@ssoeasy-dev/vue`, `@ssoeasy-dev/svelte`.
+| Пакет          | npm                  | Описание                                                                |
+| -------------- | -------------------- | ----------------------------------------------------------------------- |
+| `client/core`  | `@ssoeasy-dev/core`  | Фреймворк-агностичный `AuthManager` — OAuth 2.0 PKCE flow для фронтенда |
+| `client/react` | `@ssoeasy-dev/react` | React-адаптер: `AuthProvider`, `useAuth`, `ProtectedRoute`              |
+| `api/go/core`  | `-`                  | Client и middleware для проверки прав доступа на сервере                |
+| `api/go/echo`  | `-`                  | Адаптер для фреймворка echo                                             |
 
 ## Структура репозитория
 
 ```
 client.pkg/
-├── core/                  # @ssoeasy-dev/core
-│   ├── src/
-│   │   ├── AuthManager.ts
-│   │   ├── types.ts
-│   │   ├── storage.ts     # sessionStorage helpers
-│   │   ├── utils.ts       # PKCE utils (verifier, challenge, state)
-│   │   └── constants.generated.ts
-│   └── package.json
-├── react/                 # @ssoeasy-dev/react
-│   ├── src/
-│   │   ├── AuthProvider.tsx
-│   │   ├── ProtectedRoute.tsx
-│   │   ├── useAuth.ts
-│   │   ├── context.ts
-│   │   └── index.ts
-│   └── package.json
-└── examples/
-    └── react/             # Пример использования с React Router
+├── client/                    # Пакеты для клиентской части
+│   ├── core/                   # Ядро функционала npm:@ssoeasy-dev/core
+│   ├── examples/               # Примеры использования
+│   └── react/                  # Адаптер для react npm:@ssoeasy-dev/react
+└── api/                       # Пакеты для серверной части
+    ├── examples/               # Примеры использования
+    └── go/                     # Пакеты для go
+        ├── core/                # Ядро функционала
+        └── echo/                # Адаптер для echo
 ```
 
 ## Лицензия
