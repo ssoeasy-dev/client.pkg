@@ -1,2 +1,4 @@
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
+github.com/ssoeasy-dev/pkg/errors v1.2.0 h1:S1SwTBecQtvzM5eFSzrAZBrr0FCcv5Yxn9ql9ZlFs60=
+github.com/ssoeasy-dev/pkg/errors v1.2.0/go.mod h1:T/YJ0gK+meb/XmlyUs0fDU3vFpFNIist1KuO82Ta7Xc=

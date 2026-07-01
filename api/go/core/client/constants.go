@@ -1,10 +1,6 @@
 package client
 
 const (
-	baseUrlProduction  = "https://auth.ssoeasy.ru"
-	baseUrlDevelopment = "https://auth.dev.ssoeasy.ru"
-)
-
-const (
-	endpointCheckPermission = "/api/v1/permission/check"
+	ProductionBaseUrl  = "https://auth.ssoeasy.ru/api/v1"
+	DevelopmentBaseUrl = "https://auth.dev.ssoeasy.ru/api/v1"
 )

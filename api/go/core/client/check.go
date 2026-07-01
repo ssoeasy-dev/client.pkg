@@ -2,49 +2,64 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"io"
+	"log"
 	"net/http"
-	"net/url"
 
 	"github.com/google/uuid"
-	"github.com/ssoeasy-dev/client.pkg/api/go/core"
+	"github.com/ssoeasy-dev/client.pkg/api/go/core/v2/dto"
+	"github.com/ssoeasy-dev/pkg/errors"
 )
 
-// CheckPermission выполняет GET /api/v1/permission/check и возвращает:
-//   - true  — доступ разрешён (HTTP 200)
-//   - false — доступ запрещён (HTTP 403)
-//   - error — сетевая / протокольная ошибка
-func (c *Client) CheckPermission(
-	ctx context.Context,
-	token string,
-	permissionID uuid.UUID,
-) (bool, error) {
-	endpoint := c.baseURL + endpointCheckPermission
+// Check выполняет GET /api/v1/permission/check и возвращает:
+//   - error — если доступ запрещён или произошла ошибка.
+func (c *Client) Check(ctx context.Context, meta dto.Meta, tokens dto.Tokens, permissionID uuid.UUID) error {
+	path := "/permission/check/" + permissionID.String()
+	url := c.baseURL.JoinPath(path)
 
-	q := url.Values{}
-	q.Set("permissionId", permissionID.String())
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"?"+q.Encode(), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url.String(), nil)
 	if err != nil {
-		return false, ssoeasy.NewError("check permission build request failed: %w", err)
+		return errors.NewWrapf(errors.ErrInternal, err, "check: build request")
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
 
-	resp, err := c.httpClient.Do(req)
+	if err = meta.ToHttpHeaders(req.Header); err != nil {
+		return errors.NewWrapf(errors.ErrInvalidArgument, err, "check: set meta headers")
+	}
+	if err = tokens.ToHttpHeaders(req.Header); err != nil {
+		return errors.NewWrapf(errors.ErrInvalidArgument, err, "check: set token headers")
+	}
+
+	res, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, ssoeasy.NewError("check permission request failed: %w", err)
+		if errors.Is(err, context.Canceled) {
+			return errors.NewWrapf(errors.ErrCanceled, err, "check: request canceled")
+		}
+		return errors.NewWrapf(errors.ErrBadGateway, err, "check: do request")
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			log.Println(closeErr)
+		}
+	}()
 
-	switch resp.StatusCode {
-	case http.StatusOK:
-		return true, nil
-	case http.StatusForbidden:
-		return false, nil
-	case http.StatusUnauthorized:
-		return false, ssoeasy.NewError("unauthorized")
-	default:
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return false, ssoeasy.NewError("check permission unexpected status %d : %s", resp.StatusCode, body)
+	resBody, err := io.ReadAll(res.Body)
+	if err != nil {
+		return errors.NewWrapf(errors.ErrInternal, err, "check: read response body")
 	}
+
+	if res.StatusCode != http.StatusOK {
+		kind := mapStatusCodeToKind(res.StatusCode)
+		var errResp struct {
+			Errors []string `json:"errors"`
+		}
+		_ = json.Unmarshal(resBody, &errResp)
+		msg := "permission check failed"
+		if len(errResp.Errors) > 0 {
+			msg = errResp.Errors[0]
+		}
+		return errors.Newf(kind, "%s (status %d)", msg, res.StatusCode)
+	}
+
+	return nil
 }
