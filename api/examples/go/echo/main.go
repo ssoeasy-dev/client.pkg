@@ -1,47 +1,55 @@
 package main
 
 import (
-	"log"
+	"context"
 	"net/http"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
-	"github.com/ssoeasy-dev/client.pkg/api/go/core/client"
-	"github.com/ssoeasy-dev/client.pkg/api/go/echo"
+	ssoeasyClient "github.com/ssoeasy-dev/client.pkg/api/go/core/v2/client"
+	ssoeasyDto "github.com/ssoeasy-dev/client.pkg/api/go/core/v2/dto"
+	ssoeasyEcho "github.com/ssoeasy-dev/client.pkg/api/go/echo/v2"
 )
 
 func main() {
-	// Инициализация клиента SSO. От env зависит среда ssoeasy.
-	// EnvProduction используется для продакшен среды ssoeasy.
-	// EnvDevelopment используется для среды разработки и ограничивает количество запросов.
-	// EnvEnterprise используется для использования собственного инстанса ssoeasy. Требует опции ssoeasyClient.WithBaseURL()
-	client, err := client.NewClient(client.EnvDevelopment)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// ID права, которое требуется для доступа. Выпускается в админке ssoeasy
-	permID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	permissionID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	serviceID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 
 	e := echo.New()
 
-	// --- Использование ---
+	authHandler, err := ssoeasyEcho.NewHandler(ssoeasyEcho.Config{
+		Cookie: ssoeasyEcho.CookieConfig{
+			Domain: "example.com",
+			MaxAge: 8 * 60 * 60 * 1000,
+		},
+		Client: ssoeasyClient.Config{
+			BaseURL: ssoeasyClient.ProductionBaseUrl,
+			ServiceID: serviceID,
+		},
+	})
+	if err != nil {
+		panic(err)
+	}
 
-	// 1. Публичный эндпоинт — middleware ExtractUser добавляет пользователя в контекст, если токен передан
-	e.GET("/public", handler, ssoeasy.ExtractUser())
+	cb := func (ctx context.Context, p ssoeasyDto.Payload) error { return nil }
 
-	// 2. Защищённый эндпоинт — middleware CheckPermission проверяет доступ пользователя в системе ssoeasy по токену и добавляет пользователя в контекст
-	e.GET("/protected", handler, ssoeasy.CheckPermission(client, permID))
+	authGroup := e.Group("/auth")
+	authGroup.POST("/authorize", authHandler.Authorize(cb))
+	authGroup.DELETE("/logout", authHandler.Logout(cb))
+	authGroup.GET("/me", authHandler.Me(cb))
+	authGroup.PATCH("/refresh", authHandler.Refresh(cb))
+
+	
+	e.GET("/public", handler)
+	e.GET("/protected", handler, authHandler.Check(permissionID, cb))
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
 
 func handler(c echo.Context) error {
-	// ssoeasyMiddleware.GetUser получает пользователя из контекста.
-	user := ssoeasy.GetUser(c)
-	// Проверка нужна, если используется ssoeasyMiddleware.ExtractUser напрямую.
-	if user == nil {
-		return c.String(http.StatusOK, "Anonymous")
-	}
+	user, err := ssoeasyDto.PayloadFromContext(c.Request().Context())
+    if err != nil {
+        return err
+    }
 	return c.String(http.StatusOK, "Hello, "+user.UserID.String())
 }
